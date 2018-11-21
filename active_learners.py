@@ -1,7 +1,7 @@
 import os
 import random
 
-import utils
+import utils.utils as utils
 
 import numpy as np
 import matplotlib.pyplot as plt

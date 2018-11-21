@@ -7,7 +7,7 @@
 import os
 import random
 
-import utils
+import utils.utils as utils
 import DCGAN
 #from SubsetMNIST import SubsetMNIST
 from Networks import SimpleNet

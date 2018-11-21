@@ -4,7 +4,7 @@ import os
 import random
 
 import numpy as np
-from utils import save_model, load_model_dict, load_model
+from utils.utils import save_model, load_model_dict, load_model
 import matplotlib.pyplot as plt
 # %matplotlib inline
 
