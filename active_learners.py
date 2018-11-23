@@ -19,7 +19,8 @@ from torch.nn import functional as F
 
 class ActiveLearner(object):
     """Base class for Activer Learners"""
-    def __init__(self,model,criterion,dataset,L_indices,verbose=False,device='cpu'):
+
+    def __init__(self, model, criterion, dataset, L_indices, verbose=False, device='cpu'):
         """
         model: the SVM that will be trained
         criterion: criterion that measures the usefullness of an
@@ -31,33 +32,41 @@ class ActiveLearner(object):
         self.criterion = criterion
         self.dataset = dataset
 
-        mask = np.isin(np.arange(len(dataset)),np.array(L_indices,dtype=int)) == False
-        U_indices = np.arange(len(dataset))[mask]
+        #mask = np.isin(np.arange(len(dataset)),np.array(L_indices,dtype=int)) == False
+        #U_indices = np.arange(len(dataset))[mask]
 
-        self.L = torch.utils.data.Subset(self.dataset, np.array(L_indices,dtype=int))
-        self.U = torch.utils.data.Subset(self.dataset, U_indices)
+        # np.array(L_indices,dtype=int))
+        self.L = torch.utils.data.Subset(self.dataset, np.array([],dtype=int))
+        self.U = torch.utils.data.Subset(
+            self.dataset, np.arange(len(dataset)))  # [U_indices])
+        self.label(L_indices)
 
         self.device = device
         self.verbose = verbose
 
-    def label(self,i):
+    def label(self, i):
         """
         i: int or iterable of int
         label instances at U_x[i] and remove it from the U and put it in L
         TODO: implement batch sampling
         """
+        if type(i) == int:
+            i = [i]
+        if len(i) == 0:
+            return
 
-        X_index = self.U.indices[i] # index of instance_i in the underlying (whole) dataset
-        #print(X_index)
-        self.U.indices = np.delete(self.U.indices,i)
-        self.L.indices = np.append(self.L.indices,X_index)
+        # index of instance_i in the underlying (whole) dataset
+        X_index = self.U.indices[i]
+        # print(X_index)
+        self.U.indices = np.delete(self.U.indices, i)
+        self.L.indices = np.append(self.L.indices, X_index)
 
-        if hasattr(self.criterion,'update_cache'):
+        if hasattr(self.criterion, 'update_cache'):
             self.criterion.update_cache(i)
-            assert(len(self.U)==len(self.criterion.U_z))
+            assert(len(self.U) == len(self.criterion.U_z))
             print('Updating criterion cache')
 
-    def re_train(self,epochs=1,batch_size=32,hard=True):
+    def re_train(self, epochs=1, batch_size=32, hard=True):
         #print("Please check if correct")
         if hard:
             self.model.reset_parameters()
@@ -66,67 +75,68 @@ class ActiveLearner(object):
             print('Retraining model with {} datapoints'.format(len(self.L)))
 
         kwargs = {'num_workers': 1,
-            'pin_memory': True} if torch.cuda.is_available() else {'num_workers': 2}
+                  'pin_memory': True} if torch.cuda.is_available() else {'num_workers': 2}
 
-        if not len(self.L)//batch_size >= 10:
-            batch_size = max(1,len(self.L)//10)
+        if not len(self.L) // batch_size >= 10:
+            batch_size = max(1, len(self.L) // 10)
 
-        L_dataloader = torch.utils.data.DataLoader(self.L,batch_size=batch_size,shuffle=True,**kwargs)
+        L_dataloader = torch.utils.data.DataLoader(
+            self.L, batch_size=batch_size, shuffle=True, **kwargs)
 
         self.model.train()
-        for epoch in range(1,epochs+1):
+        for epoch in range(1, epochs + 1):
             loss = 0
             batches = 0
             for batch in L_dataloader:
                 X = batch[0]
                 y = batch[-1]
                 batches += 1
-                loss += self.model.train_model(X,y,iters=1)
-            avg_loss = loss/batches
+                loss += self.model.train_model(X, y, iters=1)
+            avg_loss = loss / batches
         if self.verbose:
-            print("Epoch {} | Avg Loss: {:.4f}".format(epoch,avg_loss))
+            print("Epoch {} | Avg Loss: {:.4f}".format(epoch, avg_loss))
 
-    def plot(self,densfunc,resolution=150,show_criterion=False):
+    def plot(self, densfunc, resolution=150, show_criterion=False):
         """
         show_criterion currently only works if real data is 2-dimensional
         """
-        plt.figure(figsize=(6,6))
+        plt.figure(figsize=(6, 6))
 
         if show_criterion:
             # Sample data
-            side = np.linspace(-7,7,resolution)
-            X_dens,Y_dens = np.meshgrid(side,side)
-            zipped = np.dstack((X_dens,Y_dens)).reshape(-1,2)
-            dens = torch.tensor(densfunc(torch.tensor(zipped,dtype=torch.double)),dtype=torch.float)
+            side = np.linspace(-7, 7, resolution)
+            X_dens, Y_dens = np.meshgrid(side, side)
+            zipped = np.dstack((X_dens, Y_dens)).reshape(-1, 2)
+            dens = torch.tensor(densfunc(torch.tensor(
+                zipped, dtype=torch.double)), dtype=torch.float)
 
             self.model.train
             with torch.no_grad():
-                pred = self.model.forward(torch.tensor(zipped,dtype=torch.float))
+                pred = self.model.forward(
+                    torch.tensor(zipped, dtype=torch.float))
             Z_dens = self.criterion(
-                                pred,
-                                dens
-                            ).reshape(resolution,resolution)
+                pred,
+                dens
+            ).reshape(resolution, resolution)
 
             # Plot the density map using nearest-neighbor interpolation
 
-            plt.pcolormesh(X_dens,Y_dens,Z_dens,cmap='Greys')
-
-
-
+            plt.pcolormesh(X_dens, Y_dens, Z_dens, cmap='Greys')
 
         # plot unlabeled points
         X = self.U.dataset[self.U.indices][1]
         y = self.U.dataset[self.U.indices][-1]
-        sns.scatterplot(x = X[:,0],y=X[:,1],hue=y,s=5,alpha=0.2,legend=False)
+        sns.scatterplot(x=X[:, 0], y=X[:, 1], hue=y,
+                        s=5, alpha=0.2, legend=False)
 
         # plot labeled points
         X = self.L.dataset[self.L.indices][1]
         y = self.L.dataset[self.L.indices][-1]
-        sns.scatterplot(x = X[:,0],y=X[:,1],s=50,legend=False,hue=y)
+        sns.scatterplot(x=X[:, 0], y=X[:, 1], s=50, legend=False, hue=y)
 
         plt.show()
 
-    def select(self,temp=0):
+    def select(self, temp=0):
         """
         Selects the next instance or batch to label
         returns its index in self.U_x
@@ -135,13 +145,13 @@ class ActiveLearner(object):
         scores = self.calc_scores()
 
         # make array of pseudo probability distribution
-        p = scores/scores.sum()
+        p = scores / scores.sum()
 
-        i = self.sample(p,temp=temp)
+        i = self.sample(p, temp=temp)
 
         if self.verbose:
             print("Selected instance {} with score {:.4f}".format(
-                    i,scores[i]))
+                i, scores[i]))
 
         return i
 
@@ -151,7 +161,7 @@ class ActiveLearner(object):
         """
         pass
 
-    def sample(self,p,temp):
+    def sample(self, p, temp):
         """
         sample an index of an instance given probability distribution p and
         temperature temp
@@ -169,19 +179,20 @@ class ActiveLearner(object):
             if temp != 1:
                 p_temp = torch.exp(torch.log(p) / temp)
                 p_temp /= p_temp.sum()
-                #print(p_temp.sum())
+                # print(p_temp.sum())
             else:
                 # temp == 1 does nothing
                 p_temp = p
 
             # sample index from distribution given by p_temp
-            i = np.random.choice(p.shape[0],p=p_temp.numpy())
+            i = np.random.choice(p.shape[0], p=p_temp.numpy())
 
             if self.verbose:
                 print("Selected instance {} with p {:.4f} | p_temp {:.4f}".format(
-                        i,p[i],p_temp[i]))
+                    i, p[i], p_temp[i]))
 
         return i
+
 
 class ModelAgnosticActiveLearner(ActiveLearner):
     def calc_scores(self):
@@ -193,29 +204,31 @@ class ModelAgnosticActiveLearner(ActiveLearner):
         if torch.cuda.is_available():
             kwargs = {'num_workers': 1, 'pin_memory': True}
         else:
-            kwargs =  {}
+            kwargs = {}
         U_dataloader = torch.utils.data.DataLoader(
-                            self.U,batch_size=len(self.U),shuffle=False,**kwargs)
+            self.U, batch_size=len(self.U), shuffle=False, **kwargs)
 
         scores = None
         for data in U_dataloader:
             batch_scores = self.criterion(*data[0:-1])
-            if scores is None: # first iteration
+            if scores is None:  # first iteration
                 scores = batch_scores
             else:
                 scores = torch.cat((scores, batch_scores), 0)
 
         return scores
 
+
 class RandomActiveLearner(ActiveLearner):
     """
     query a random instance every iteration = passive learning
     """
-    def select(self,temp=None):
+
+    def select(self, temp=None):
         """
         overwriting select function of ActiveLearner
         """
-        i = random.randint(0, len(self.U)-1)
+        i = random.randint(0, len(self.U) - 1)
         return i
 
 
@@ -229,16 +242,16 @@ class ModelAgnosticActiveLearner(ActiveLearner):
         if torch.cuda.is_available():
             kwargs = {'num_workers': 1, 'pin_memory': True}
         else:
-            kwargs =  {}
+            kwargs = {}
         U_dataloader = torch.utils.data.DataLoader(
-                            self.U,batch_size=len(self.U),shuffle=False,**kwargs)
+            self.U, batch_size=len(self.U), shuffle=False, **kwargs)
 
         L_z = self.L.dataset[self.L.indices][1]
         scores = None
-        for X,z,_ in U_dataloader: #data = [X,z,'y']
+        for X, z, _ in U_dataloader:  # data = [X,z,'y']
             U_z = z
-            batch_scores = self.criterion(None,U_z,L_z)
-            if scores is None: # first iteration
+            batch_scores = self.criterion(None, U_z, L_z)
+            if scores is None:  # first iteration
                 scores = batch_scores
             else:
                 scores = torch.cat((scores, batch_scores), 0)
@@ -251,9 +264,11 @@ class SearchActiveLearner(ActiveLearner):
     Linear search for best instance according to criterion
     dataset[i] = x,y of datapoint i
     """
-    def __init__(self,model,criterion,dataset,L_indices,verbose=False,device='cpu'):
-        super().__init__(model,criterion,dataset,L_indices,
-                                verbose=verbose,device=device)
+
+    def __init__(self, model, criterion, dataset, L_indices, verbose=False, device='cpu'):
+        super().__init__(model, criterion, dataset, L_indices,
+                         verbose=verbose, device=device)
+
     def calc_scores(self):
         """
         calculates the utility score of each instance in self.U given by criterion
@@ -264,9 +279,9 @@ class SearchActiveLearner(ActiveLearner):
         if torch.cuda.is_available():
             kwargs = {'num_workers': 1, 'pin_memory': True}
         else:
-            kwargs =  {}
+            kwargs = {}
         U_dataloader = torch.utils.data.DataLoader(
-                            self.U,batch_size=len(self.U),shuffle=False,**kwargs)
+            self.U, batch_size=len(self.U), shuffle=False, **kwargs)
 
         self.model.eval()
 
@@ -275,8 +290,52 @@ class SearchActiveLearner(ActiveLearner):
             for data in U_dataloader:
                 X = data[0]
                 pred = self.model(X)
-                batch_scores = self.criterion(pred,*data[1:-1])
-                if scores is None: # first iteration
+                batch_scores = self.criterion(pred, *data[1:-1])
+                if scores is None:  # first iteration
+                    scores = batch_scores
+                else:
+                    scores = torch.cat((scores, batch_scores), 0)
+
+        return scores
+
+class CoreSetActiveLearner(ActiveLearner):
+    """
+    Linear search for best instance according to criterion
+    dataset[i] = x,y of datapoint i
+
+    based on https://arxiv.org/abs/1708.00489
+    """
+
+    def __init__(self, model, criterion, dataset, L_indices, verbose=False, device='cpu'):
+        super().__init__(model, criterion, dataset, L_indices,
+                         verbose=verbose, device=device)
+
+    def calc_scores(self):
+        """
+        calculates the utility score of each instance in self.U given by criterion
+        """
+
+        if torch.cuda.is_available():
+            kwargs = {'num_workers': 1, 'pin_memory': True}
+        else:
+            kwargs = {}
+        U_dataloader = torch.utils.data.DataLoader(
+            self.U, batch_size=len(self.U), shuffle=False, **kwargs)
+        L_dataloader = torch.utils.data.DataLoader(
+            self.L, batch_size=len(self.L), shuffle=False, **kwargs)
+
+        L_x = next(iter(L_dataloader))[0]
+
+        self.model.eval()
+
+        with torch.no_grad():
+            _,L_z = self.model.forward(L_x,return_z=True)
+            scores = None
+            for data in U_dataloader:
+                X = data[0]
+                pred,U_z = self.model.forward(X,return_z=True)
+                batch_scores = self.criterion(pred, U_z=U_z,L_z=L_z)
+                if scores is None:  # first iteration
                     scores = batch_scores
                 else:
                     scores = torch.cat((scores, batch_scores), 0)
@@ -289,13 +348,14 @@ class DiverstiyDensityUncertaintyActiveLearner(ActiveLearner):
     maping given in the dataset
     dataset[i] = x,z,y of datapoint i
     """
-    def __init__(self,model,criterion,dataset,L_indices,verbose=False,device='cpu'):
+
+    def __init__(self, model, criterion, dataset, L_indices, verbose=False, device='cpu'):
         super().__init__(model,
-                        criterion,
-                        dataset,
-                        L_indices,
-                        verbose=verbose,
-                        device=device)
+                         criterion,
+                         dataset,
+                         L_indices,
+                         verbose=verbose,
+                         device=device)
 
         self.lambda_ = 0
 
@@ -306,59 +366,62 @@ class DiverstiyDensityUncertaintyActiveLearner(ActiveLearner):
         TODO: implement batchwise score calculation but with golbal normalization
         """
 
-        kwargs = {'num_workers': 1, 'pin_memory': True} if torch.cuda.is_available() else {}
-        U_dataloader = torch.utils.data.DataLoader(self.U,batch_size=len(self.U),shuffle=False,*kwargs)
+        kwargs = {'num_workers': 1, 'pin_memory': True} if torch.cuda.is_available() else {
+        }
+        U_dataloader = torch.utils.data.DataLoader(
+            self.U, batch_size=len(self.U), shuffle=False, *kwargs)
 
         self.model.eval()
 
         with torch.no_grad():
             L_z = self.L.dataset[self.L.indices][1]
             scores = None
-            for X,z,_ in U_dataloader: #data = [X,z,'y']
+            for X, z, _ in U_dataloader:  # data = [X,z,'y']
                 U_z = z
                 pred = self.model.forward(X)
-                batch_scores = self.criterion(pred,U_z,L_z)
-                if scores is None: # first iteration
+                batch_scores = self.criterion(pred, U_z, L_z)
+                if scores is None:  # first iteration
                     scores = batch_scores
                 else:
                     scores = torch.cat((scores, batch_scores), 0)
 
         return scores
 
-    def plot(self,densfunc,resolution=150, show_criterion=False):
+    def plot(self, densfunc, resolution=150, show_criterion=False):
         """
         show_criterion currently only works if real data is 2-dimensional
         """
-        plt.figure(figsize=(6,6))
+        plt.figure(figsize=(6, 6))
         if show_criterion:
             # Sample data
-            side = np.linspace(-7,7,resolution)
-            X_dens,Y_dens = np.meshgrid(side,side)
-            zipped = np.dstack((X_dens,Y_dens)).reshape(-1,2)
-
+            side = np.linspace(-7, 7, resolution)
+            X_dens, Y_dens = np.meshgrid(side, side)
+            zipped = np.dstack((X_dens, Y_dens)).reshape(-1, 2)
 
             self.model.eval()
             with torch.no_grad():
-                pred = self.model.forward(torch.tensor(zipped,dtype=torch.float))
+                pred = self.model.forward(
+                    torch.tensor(zipped, dtype=torch.float))
             Z_dens = self.criterion(
-                                pred,
-                                torch.tensor(zipped,dtype=torch.float),
-                                self.L.dataset[self.L.indices][1],
-                                lambda_ = self.lambda_
-                            ).reshape(resolution,resolution)
+                pred,
+                torch.tensor(zipped, dtype=torch.float),
+                self.L.dataset[self.L.indices][1],
+                lambda_=self.lambda_
+            ).reshape(resolution, resolution)
 
             # Plot the density map using nearest-neighbor interpolation
-            plt.pcolormesh(X_dens,Y_dens,Z_dens,cmap='Greys')
+            plt.pcolormesh(X_dens, Y_dens, Z_dens, cmap='Greys')
 
         # plot unlabeled points
         X = self.U.dataset[self.U.indices][1]
         y = self.U.dataset[self.U.indices][-1]
-        sns.scatterplot(x = X[:,0],y=X[:,1],hue=y,s=5,alpha=0.2,legend=False)
+        sns.scatterplot(x=X[:, 0], y=X[:, 1], hue=y,
+                        s=5, alpha=0.2, legend=False)
 
         # plot labeled points
         X = self.L.dataset[self.L.indices][1]
         y = self.L.dataset[self.L.indices][-1]
-        sns.scatterplot(x = X[:,0],y=X[:,1],s=50,legend=False,hue=y)
+        sns.scatterplot(x=X[:, 0], y=X[:, 1], s=50, legend=False, hue=y)
 
         plt.show()
 

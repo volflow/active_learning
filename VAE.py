@@ -14,12 +14,10 @@ import torchvision.transforms as transforms
 import torchvision.utils as vutils
 from torch.nn import functional as F
 
-img_size = 32
-latent_size = 5
 
 class VAE(nn.Module):
     def __init__(self):
-        super(VAE, self).__init__()
+        super(VAE, self).__init__(latent_size=5,img_size=32)
         hidden_size = 500
         self.fc1 = nn.Linear(img_size*img_size, hidden_size)
         self.fc21 = nn.Linear(hidden_size, latent_size)

@@ -175,13 +175,15 @@ class DiversityCached(nn.Module):
 
     def update_cache(self,i):
         """
-        i: index of instance in U_z that was added to labeled set
+        updates the cached distances
+        i: int or iterable of indeices of instances in U_z that were added to labeled set
         """
+        if type(i) == int:
+            i = [i]
         new_labeled = self.U_z[i]
-        assert(i < len(self.U_z))
-        not_i = list(range(i))+list(range(i+1,len(self.U_z)))
-        self.U_z = self.U_z[not_i]
-        l2_new_labeled = torch.norm(self.U_z-new_labeled.view(1,-1),p=2,dim=-1)
+        not_i = [x for x in range(len(self.U_z)) if x not in i]#list(range(i))+list(range(i+1,len(self.U_z)))
+        self.U_z = self.U_z[not_i,:]
+        l2_new_labeled = self.calc_distances(self.U_z,new_labeled)#,torch.norm(self.U_z-new_labeled.view(len(i),-1),p=2,dim=-1)
         if self.dists_cache is not None:
             # dists_cache has been initialized
             self.dists_cache = torch.min(self.dists_cache[not_i],l2_new_labeled)
@@ -204,7 +206,7 @@ class DiversityCached(nn.Module):
 
     def calc_distances(self,U_z,L_z):
         """
-        calcluate minimal l2 distance of each z in U_z to a z' in L_z
+        calcluate minimal l2 distance of each z in U_z to all z' in L_z
         for each z in U_x
             min_{z' \in L_z} ||z-z'||_2
         """
@@ -269,11 +271,32 @@ class DiversityDensity(nn.Module):
             dd /= torch.max(dd)+1e-18
         return dd
 
-class DiversityDensityUncertainty(nn.Module):
-    """Uncertainty(pred) + (Density(z)*Diversity(z))
-    """
+class DiversityUncertainty(nn.Module):
+    """Uncertainty(pred) + Diversity(z)"""
     def __init__(self,
-                unceratinty=Entropy(),
+                uncertainty=Entropy(),
+                density=MultivariateLogProb(100),
+                verbose=False):
+        super(DiversityUncertainty, self).__init__()
+        self.uncertainty = unceratinty
+        self.density = density
+        self.diversity = Diversity(normalize=True)
+        self.verbose = verbose
+
+    def forward(self, pred, U_z, L_z, lambda_=1):
+        u = self.uncertainty(pred)#torch.log(self.uncertainty(pred))#
+        u -= torch.min(u)
+        u /= torch.max(u)+1e-18
+
+        d = self.diversity(pred,U_z, L_z)
+
+        return lambda_*u + d
+
+
+class DiversityDensityUncertainty(nn.Module):
+    """Uncertainty(pred) + (Density(z)*Diversity(z))"""
+    def __init__(self,
+                uncertainty=Entropy(),
                 density=MultivariateLogProb(100),
                 verbose=False):
         super(DiversityDensityUncertainty, self).__init__()
