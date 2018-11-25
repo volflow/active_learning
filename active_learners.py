@@ -20,7 +20,7 @@ from torch.nn import functional as F
 class ActiveLearner(object):
     """Base class for Activer Learners"""
 
-    def __init__(self, model, criterion, dataset, L_indices, verbose=False, device='cpu'):
+    def __init__(self, model, criterion, dataset, L_indices, val_loader=None, verbose=False, device='cpu'):
         """
         model: the SVM that will be trained
         criterion: criterion that measures the usefullness of an
@@ -31,6 +31,9 @@ class ActiveLearner(object):
         self.model = model
         self.criterion = criterion
         self.dataset = dataset
+        self.val_loader = val_loader
+        if val_loader is None:
+            print('Warning: no val_loader!')
 
         #mask = np.isin(np.arange(len(dataset)),np.array(L_indices,dtype=int)) == False
         #U_indices = np.arange(len(dataset))[mask]
@@ -83,16 +86,60 @@ class ActiveLearner(object):
         L_dataloader = torch.utils.data.DataLoader(
             self.L, batch_size=batch_size, shuffle=True, **kwargs)
 
-        self.model.train()
+
+
+        val_losses = []
+        val_accs = []
         for epoch in range(1, epochs + 1):
             loss = 0
             batches = 0
+            self.model.train()
             for batch in L_dataloader:
                 X = batch[0]
                 y = batch[-1]
                 batches += 1
                 loss += self.model.train_model(X, y, iters=1)
             avg_loss = loss / batches
+
+            #validate
+            if self.val_loader is not None:
+                val_acc,val_loss = self.model.test(self.val_loader,verbose=False)
+                # TODO: implement sophisticated early stopping
+                # if len(val_losses) >=5 and val_loss>val_losses[-1]:
+                #
+                #     print('Overfitting detected early_stopping at epoch {} prev/current loss {:.4f}/{:.4f} | acc {:.3f}/{:.3f}'.format(epoch,val_losses[-1],val_loss,val_accs[-1],val_acc))
+                #
+                #     #early Stopping
+                #     break
+
+                if len(val_losses)==0 or val_loss < min(val_losses):
+                    # create checkpoint for best model so far to revert to in
+                    # case of overfitting
+
+                    #print('New best val_loss {:.4f} | Acc {:.4f}'.format(val_loss,val_acc))
+                    state = {
+                        'state_dict': self.model.state_dict(),
+                        'optimizer': self.model.optimizer.state_dict(),
+                    }
+
+                    torch.save(state, 'temp_best_checkpoint.pth')
+
+
+                val_losses.append(val_loss)
+                val_accs.append(val_acc)
+
+        # reload best model by val loss
+        if self.val_loader is not None:
+            #print('Reverting to best model...')
+            state = torch.load('temp_best_checkpoint.pth')
+            self.model.load_state_dict(state['state_dict'], strict=True)
+            self.model.optimizer.load_state_dict(state['optimizer'])
+            val_acc,val_loss = self.model.test(self.val_loader,verbose=False)
+            print('Best val_loss {:.4f} | Acc {:.4f}'.format(val_loss,val_acc))
+            # sanity check
+            assert(min(val_losses) == val_loss)
+
+
         if self.verbose:
             print("Epoch {} | Avg Loss: {:.4f}".format(epoch, avg_loss))
 
@@ -265,8 +312,8 @@ class SearchActiveLearner(ActiveLearner):
     dataset[i] = x,y of datapoint i
     """
 
-    def __init__(self, model, criterion, dataset, L_indices, verbose=False, device='cpu'):
-        super().__init__(model, criterion, dataset, L_indices,
+    def __init__(self, model, criterion, dataset, L_indices, val_loader=None,verbose=False, device='cpu'):
+        super().__init__(model, criterion, dataset, L_indices, val_loader=val_loader,
                          verbose=verbose, device=device)
 
     def calc_scores(self):
@@ -306,8 +353,8 @@ class CoreSetActiveLearner(ActiveLearner):
     based on https://arxiv.org/abs/1708.00489
     """
 
-    def __init__(self, model, criterion, dataset, L_indices, verbose=False, device='cpu'):
-        super().__init__(model, criterion, dataset, L_indices,
+    def __init__(self, model, criterion, dataset, L_indices, val_loader=None, verbose=False, device='cpu'):
+        super().__init__(model, criterion, dataset, L_indices, val_loader=val_loader,
                          verbose=verbose, device=device)
 
     def calc_scores(self):
@@ -349,11 +396,12 @@ class DiverstiyDensityUncertaintyActiveLearner(ActiveLearner):
     dataset[i] = x,z,y of datapoint i
     """
 
-    def __init__(self, model, criterion, dataset, L_indices, verbose=False, device='cpu'):
+    def __init__(self, model, criterion, dataset, L_indices, val_loader=None, verbose=False, device='cpu'):
         super().__init__(model,
                          criterion,
                          dataset,
                          L_indices,
+                         val_loader=val_loader,
                          verbose=verbose,
                          device=device)
 

@@ -41,7 +41,8 @@ class Net(nn.Module):
         correct = 0
         with torch.no_grad():
             # TODO make it work with a dataloader
-            for data, target in test_loader:
+            for batch in test_loader:
+                data, target = batch[0],batch[-1]
                 data, target = data.to(self.device), target.to(self.device)
                 output = self.forward(data)
                 test_loss += self.loss(output, target, reduction='sum').item() # sum up batch loss

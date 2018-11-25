@@ -4,7 +4,10 @@ import random
 manual_seed = 1338
 
 
-def experiment(learner, criterion, model, model_kwargs, train_set, initially_labeled, test_loader,
+def experiment(learner, criterion, model, model_kwargs, train_set,
+               initially_labeled,
+               test_loader,
+               val_loader=None,
                rounds=5,
                iters=100,
                inital_training_epochs=100,
@@ -29,12 +32,11 @@ def experiment(learner, criterion, model, model_kwargs, train_set, initially_lab
         n = initially_labeled
         initially_labeled = []
         for r in range(rounds):
-            i = random.sample(range(len(train_set)),n)
+            i = random.sample(range(len(train_set)), n)
             initially_labeled.append(i)
 
     else:
-        assert(len(initially_labeled)==rounds)
-
+        assert(len(initially_labeled) == rounds)
 
     accs = np.zeros((rounds, iters))
     losses = np.zeros((rounds, iters))
@@ -45,6 +47,7 @@ def experiment(learner, criterion, model, model_kwargs, train_set, initially_lab
             'criterion': criterion,
             'model': model(**model_kwargs),
             'dataset': train_set,
+            'val_loader': val_loader,
             'L_indices': initially_labeled[r],
             'verbose': False,
             'device': 'cpu'
@@ -59,7 +62,11 @@ def experiment(learner, criterion, model, model_kwargs, train_set, initially_lab
 
         init_labeled = len(l.L)
 
-        l.re_train(epochs=inital_training_epochs, hard=False)
+        # intitial training for warm start
+        if hard==False:
+            # does not make sense when model is resetted after each query
+            l.re_train(epochs=inital_training_epochs, hard=False)
+
         print('-' * 5, 'Starting round {}'.format(r), '-' * 5)
         for i in range(init_labeled, iters + 1):
             if hard:

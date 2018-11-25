@@ -278,7 +278,7 @@ class DiversityUncertainty(nn.Module):
                 density=MultivariateLogProb(100),
                 verbose=False):
         super(DiversityUncertainty, self).__init__()
-        self.uncertainty = unceratinty
+        self.uncertainty = uncertainty
         self.density = density
         self.diversity = Diversity(normalize=True)
         self.verbose = verbose
@@ -300,7 +300,7 @@ class DiversityDensityUncertainty(nn.Module):
                 density=MultivariateLogProb(100),
                 verbose=False):
         super(DiversityDensityUncertainty, self).__init__()
-        self.uncertainty = unceratinty
+        self.uncertainty = uncertainty
         self.density = density
         self.divdens = DiversityDensity(
                         density=density,
